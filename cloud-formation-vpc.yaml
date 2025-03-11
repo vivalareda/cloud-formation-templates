@@ -154,3 +154,20 @@ Outputs:
     Export:
       Name: !Sub "${AWS::StackName}-PublicSubnetId"
 
+  PrivateSubnetId:
+    Description: "ID du sous-réseau privé"
+    Value: !Ref PrivateSubnet
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnetId"
+
+  ProjectNameOutput:
+    Description: "Nom du projet"
+    Value: !Ref ProjectName
+    Export:
+      Name: !Sub "${AWS::StackName}-ProjectName"
+
+  EnvironmentTypeOutput:
+    Description: "Type d'environnement"
+    Value: !Ref EnvironmentType
+    Export:
+      Name: !Sub "${AWS::StackName}-EnvironmentType"

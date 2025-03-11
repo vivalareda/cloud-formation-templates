@@ -35,12 +35,6 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${NetworkStackName}-DbSG"
-        - Key: Environment
-          Value: !ImportValue
-            Fn::Sub: "${NetworkStackName}-EnvironmentType"
-        - Key: Project
-          Value: !ImportValue
-            Fn::Sub: "${NetworkStackName}-ProjectName"
         - Key: Layer
           Value: "bd"
 
@@ -101,9 +95,6 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${NetworkStackName}-DbServer"
-        - Key: Environment
-          Value: !ImportValue
-            Fn::Sub: "${NetworkStackName}-EnvironmentType"
         - Key: Project
           Value: !ImportValue
             Fn::Sub: "${NetworkStackName}-ProjectName"
