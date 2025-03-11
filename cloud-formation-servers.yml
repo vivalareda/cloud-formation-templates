@@ -1,0 +1,120 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Template Cloud Formation pour creation de serveurs"
+
+Parameters:
+  NetworkStackName:
+    Type: String
+    Description: "Nom du stack réseau CloudFormation"
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: "Nom de la clé SSH pour la connexion aux instances"
+
+  S3BucketScripts:
+    Type: String
+    Description: "Nom du bucket S3 contenant les scripts d'installation"
+    Default: "menugraphique-2025-h24-4"
+
+  DBRootPassword:
+    Type: String
+    NoEcho: true
+    Description: "Mot de passe root de la base de données"
+
+Resources:
+  DbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Database server
+      VpcId: !ImportValue
+        Fn::Sub: "${NetworkStackName}-VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${NetworkStackName}-DbSG"
+        - Key: Environment
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-EnvironmentType"
+        - Key: Project
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-ProjectName"
+        - Key: Layer
+          Value: "bd"
+
+  DbLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "${NetworkStackName}-DbLaunchTemplate"
+      LaunchTemplateData:
+        ImageId: ami-0c7217cdde317cfec
+        InstanceType: t2.micro
+        KeyName: !Ref KeyPairName
+        SecurityGroupIds:
+          - !Ref DbSecurityGroup
+        IamInstanceProfile:
+          Name: "LabInstanceProfile"
+        UserData:
+          Fn::Base64: !Sub |
+            export DBRootPassword="${DBRootPassword}"
+
+            LOGFILE="/var/log/webserver_install.log"
+            exec > >(tee -a "$LOGFILE") 2>&1
+            echo "=== Starting webserver installation script at $(date) ==="
+
+            sudo dnf update -y
+            sudo dnf install mariadb105-server -y
+
+            # Download configuration and setup files from S3
+            sudo aws s3 cp s3://menugraphique-2025-h24-4/db-files/db.setup /tmp/db.setup
+            sudo aws s3 cp s3://menugraphique-2025-h24-4/db-files/mariadb-server.cnf /tmp/mariadb-server.cnf
+
+            # Move the config file to the correct location
+            sudo mv /tmp/mariadb-server.cnf /etc/my.cnf.d/mariadb-server.cnf
+
+            # Enable and start MariaDB
+            sudo systemctl enable mariadb
+            sudo systemctl start mariadb
+
+            # Set root password
+            sudo mysqladmin -u root password "${DBRootPassword}"
+
+            # Execute SQL setup
+            mysql -u root --password="${DBRootPassword}" < /tmp/db.setup
+
+            # Clean up
+            rm /tmp/db.setup
+
+            # Restart MariaDB
+            sudo systemctl restart mariadb
+
+  DbInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref DbLaunchTemplate
+        Version: !GetAtt DbLaunchTemplate.LatestVersionNumber
+      SubnetId: !ImportValue
+        Fn::Sub: "${NetworkStackName}-PrivateSubnetId"
+      Tags:
+        - Key: Name
+          Value: !Sub "${NetworkStackName}-DbServer"
+        - Key: Environment
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-EnvironmentType"
+        - Key: Project
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-ProjectName"
+        - Key: Layer
+          Value: "bd"
+
+Outputs:
+  DbServerPrivateIP:
+    Description: "Adresse IP privée du serveur de base de données"
+    Value: !GetAtt DbInstance.PrivateIp
+
+  DbSecurityGroupId:
+    Description: "ID du groupe de sécurité de la base de données"
+    Value: !Ref DbSecurityGroup

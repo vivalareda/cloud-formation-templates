@@ -1,0 +1,156 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Création d'un VPC avec sous-réseaux et une instance NAT"
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Project Configuration"
+        Parameters:
+          - ProjectName
+          - EnvironmentType
+      - Label:
+          default: "Network Configuration"
+        Parameters:
+          - VpcCidr
+          - AvailabilityZones
+
+    ParameterLabels:
+      ProjectName:
+        default: "Project Name"
+      EnvironmentType:
+        default: "Environment Type"
+      VpcCidr:
+        default: "VPC CIDR Block"
+      SubnetBits:
+        default: "Subnet Bits for Instance Identification"
+      AvailabilityZone:
+        default: "Availability Zones"
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: "Nom du projet"
+    MinLength: 3
+    MaxLength: 100
+    AllowedPattern: "^[a-zA-Z0-9]+$"
+    Default: test
+
+  EnvironmentType:
+    Type: String
+    Description: "Type d’environnement (Test ou Prod)"
+    AllowedValues:
+      - Test
+      - Prod
+    Default: Test
+
+  VpcCidr:
+    Type: String
+    Description: "Plage CIDR du VPC"
+    Default: "10.0.0.0/16"
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: "Nom de la clé SSH"
+
+  AvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: "Zone de disponibilite"
+
+  SubnetBits:
+    Type: Number
+    Description: "Number of bits to identify instances (between 4 and 16)"
+    MinValue: 4
+    MaxValue: 16
+    Default: 8
+    ConstraintDescription: "Value must be between 4 and 16"
+
+Conditions:
+  isProd: !Equals
+    - !Ref EnvironmentType
+    - prod
+
+Resources:
+  MyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock:
+        Ref: VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-VPC"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: !Select [0, !Cidr [!Ref VpcCidr, 4, !Ref SubnetBits]]
+      AvailabilityZone: !Ref AvailabilityZone
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-PublicSubnet"
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 4, !Ref SubnetBits]]
+      AvailabilityZone: !Ref AvailabilityZone
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-PrivateSubnet"
+
+  JumpBoxSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for the Jump Box
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentType}-JumpBoxSG"
+        - Key: Environment
+          Value: !Ref EnvironmentType
+        - Key: Project
+          Value: !Ref ProjectName
+
+  NATInstance:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://menugraphique-2025-h24-4.s3.us-east-1.amazonaws.com/natInstance.json"
+      Parameters:
+        VpcId: !Ref MyVPC
+        PublicSubnetId: !Ref PublicSubnet
+        PrivatesSubnetsID: !Ref PrivateSubnet
+        KeyPairName: !Ref KeyPairName
+
+Outputs:
+  VpcId:
+    Description: "ID du VPC créé"
+    Value: !Ref MyVPC
+    Export:
+      Name: !Sub "${AWS::StackName}-VpcId"
+
+  PublicSubnetId:
+    Description: "ID du sous-réseau public"
+    Value: !Ref PublicSubnet
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicSubnetId"
+
