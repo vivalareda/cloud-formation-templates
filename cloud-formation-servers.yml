@@ -15,10 +15,18 @@ Parameters:
     Description: "Nom du bucket S3 contenant les scripts d'installation"
     Default: "menugraphique-2025-h24-4"
 
+  DBUser:
+    Type: String
+    Description: "Nom d'utilisateur de la base de données"
+    MinLength: 3
+    AllowedPattern: "^[a-zA-Z0-9]+$"
+
   DBRootPassword:
     Type: String
-    NoEcho: true
     Description: "Mot de passe root de la base de données"
+    NoEcho: true
+    MinLength: 8
+    AllowedPattern: "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\W).*$"
 
 Resources:
   DbSecurityGroup:
@@ -53,6 +61,7 @@ Resources:
         UserData:
           Fn::Base64: !Sub |
             export DBRootPassword="${DBRootPassword}"
+            export DBUser="${DBUser}"
 
             LOGFILE="/var/log/webserver_install.log"
             exec > >(tee -a "$LOGFILE") 2>&1
