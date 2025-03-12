@@ -26,9 +26,26 @@ Parameters:
     Description: "Mot de passe root de la base de données"
     NoEcho: true
     MinLength: 8
-    AllowedPattern: "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\W).*$"
+
+  License:
+    Type: String
+    Description: "Licence de serveur MenuGraphique"
+    MinLength: 129
+    MaxLength: 129
 
 Resources:
+  WebServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Database server
+      VpcId: !ImportValue
+        Fn::Sub: "${NetworkStackName}-VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
   DbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -45,6 +62,140 @@ Resources:
           Value: !Sub "${NetworkStackName}-DbSG"
         - Key: Layer
           Value: "bd"
+
+  LicenseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for License server
+      VpcId: !ImportValue
+        Fn::Sub: "${NetworkStackName}-VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref WebServiceSecurityGroup
+
+  WebSiteLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "${NetworkStackName}-WebSiteLaunchTemplate"
+      VersionDescription: Initial version
+      LaunchTemplateData:
+        ImageId: ami-0c7217cdde317cfec
+        InstanceType: t2.small
+        KeyName: !Ref KeyPairName
+        SecurityGroupIds:
+          - !Ref WebServiceSecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+
+            sudo dnf update -y
+
+            sudo amazon-linux-extras enable nginx1
+            sudo dnf install -y nginx
+
+            mkdir -p /home/ec2-user/siteweb
+
+            aws s3 cp s3://menugraphique-2025-h24-4/site-web/ /home/ec2-user/siteweb --recursive
+
+            sudo mv -f /home/ec2-user/siteweb/nginx.conf /etc/nginx/nginx.conf
+            sudo nginx -t
+            sudo systemctl start nginx
+            sudo systemctl enable nginx
+
+            sudo systemctl restart nginx
+
+            sudo chown -R nginx:nginx /home/ec2-user/siteweb
+            sudo chmod -R 755 /home/ec2-user/siteweb
+
+            sudo chmod +x /home/ec2-user
+
+            sudo find /home/ec2-user/siteweb -type d -exec chmod 755 {} ;
+            sudo find /home/ec2-user/siteweb -type f -exec chmod 644 {} ;
+
+  WebServiceLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "${NetworkStackName}-WebServiceLaunchTemplate"
+      VersionDescription: Initial version
+      LaunchTemplateData:
+        ImageId: ami-0c7217cdde317cfec
+        InstanceType: t2.small
+        KeyName: !Ref KeyPairName
+        SecurityGroupIds:
+          - !Ref WebServiceSecurityGroup
+        IamInstanceProfile:
+          Name: "LabInstanceProfile"
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+
+            set -e
+            LOGFILE="/var/log/webserver_install.log"
+            exec > >(tee -a "$LOGFILE") 2>&1
+            echo "=== Starting webserver installation script at $(date) ==="
+
+            # Check if the script is run as root
+            if [[ "$EUID" -ne 0 ]]; then
+              echo "Please run this script as root."
+              exit 1
+            fi
+
+            # Update system packages
+            dnf update -y
+
+            # Download and install Oracle JDK 21
+            wget https://download.oracle.com/java/21/latest/jdk-21_linux-x64_bin.rpm
+            dnf install -y jdk-21_linux-x64_bin.rpm
+
+            # Resolve the real Java binary and grant it the capability to bind to privileged ports
+            JAVA_BIN=$(readlink -f /usr/bin/java)
+            echo "Resolved Java binary: $JAVA_BIN"
+            sudo setcap 'cap_net_bind_service=+ep' "$JAVA_BIN"
+
+            # Create the backend server directory
+            mkdir -p "/backend-server"
+
+            # Copy the web server files from S3 into the backend-server directory
+            aws s3 cp s3://menugraphique-2025-h24-4/web-server/ "/backend-server/" --recursive
+
+            # Change directory to the backend-server directory
+            cd "/backend-server"
+
+            # Setup Java library path
+            sudo bash -c 'echo "/usr/lib/jvm/jdk-21.0.6-oracle-x64/lib" > /etc/ld.so.conf.d/java.conf'
+            sudo bash -c 'echo "/usr/lib/jvm/jdk-21.0.6-oracle-x64/lib/server" >> /etc/ld.so.conf.d/java.conf'
+            sudo ldconfig
+
+            # Create the environment directory if it doesn't exist
+            echo "Creating environment directory at /etc/webserver..."
+            mkdir -p "/etc/webserver"
+
+            # Move configuration files to their proper locations
+            echo "Moving configuration files to their destinations..."
+            mv "/backend-server/config-files/webserver.env" "/etc/webserver/webserver.env"
+            mv "/backend-server/config-files/webserver.service" "/etc/systemd/system/webserver.service"
+
+            # Secure the environment file so only root can read it
+            chmod 600 "/etc/webserver/webserver.env"
+
+            # Reload systemd to read the new service file
+            echo "Reloading systemd daemon..."
+            systemctl daemon-reload
+
+            # Enable the service to start on boot
+            echo "Enabling webserver.service..."
+            systemctl enable webserver.service
+
+            # Start the service immediately
+            echo "Starting webserver.service..."
+            systemctl start webserver.service
+
+            # Display the status of the service
+            echo "Service status:"
+            systemctl status webserver.service --no-pager
+            echo "Setup complete."
 
   DbLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
@@ -93,6 +244,48 @@ Resources:
             # Restart MariaDB
             sudo systemctl restart mariadb
 
+  LicenseLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "${NetworkStackName}-LicenseLaunchTemplate"
+      LaunchTemplateData:
+        ImageId: ami-0c7217cdde317cfec
+        InstanceType: t2.micro
+        KeyName: !Ref KeyPairName
+        SecurityGroupIds:
+          - !Ref DbSecurityGroup
+        IamInstanceProfile:
+          Name: "LabInstanceProfile"
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+
+            exec > >(tee -i /var/log/serveur-licence-install.log) 2>&1
+            set -e
+
+            sudo dnf update -y
+            sudo dnf install -y nodejs npm aws-cli
+
+            sudo mkdir -p /home/ec2-user/serveur-licence
+            sudo chown -R ec2-user:ec2-user /home/ec2-user/serveur-licence
+            sudo chmod -R 755 /home/ec2-user/serveur-licence
+
+            aws s3 cp s3://menugraphique-2025-h24-4/service_license/ /home/ec2-user/serveur-licence/ --recursive
+
+            cd /home/ec2-user/serveur-licence
+
+            npm install
+            node generate.js
+
+            sudo npm install -g pm2
+            pm2 start index.js --name serveur-licence --watch -- 8080
+
+            sudo pm2 startup systemd -u ec2-user --hp /home/ec2-user
+            pm2 save
+
+            sudo firewall-cmd --permanent --add-port=8080/tcp
+            sudo firewall-cmd --reload
+
   DbInstance:
     Type: AWS::EC2::Instance
     Properties:
@@ -109,6 +302,41 @@ Resources:
             Fn::Sub: "${NetworkStackName}-ProjectName"
         - Key: Layer
           Value: "bd"
+
+  LicenseInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LicenseLaunchTemplate
+        Version: !GetAtt LicenseLaunchTemplate.LatestVersionNumber
+      SubnetId: !ImportValue
+        Fn::Sub: "${NetworkStackName}-PrivateSubnetId"
+      Tags:
+        - Key: Name
+          Value: !Sub "${NetworkStackName}-LicenseServer"
+        - Key: Project
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-ProjectName"
+        - Key: Layer
+          Value: "license"
+
+  WebServiceInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref WebServiceLaunchTemplate
+        Version: !GetAtt WebServiceLaunchTemplate.LatestVersionNumber
+      SubnetId: !ImportValue
+        Fn::Sub: "${NetworkStackName}-PublicSubnetId"
+
+  WebSiteInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref WebSiteLaunchTemplate
+        Version: !GetAtt WebSiteLaunchTemplate.LatestVersionNumber
+      SubnetId: !ImportValue
+        Fn::Sub: "${NetworkStackName}-PublicSubnetId"
 
 Outputs:
   DbServerPrivateIP:
