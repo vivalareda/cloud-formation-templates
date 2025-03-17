@@ -1,89 +1,116 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "Création d'un VPC avec sous-réseaux et une instance NAT"
+Description: "VPC avec sous-reseaux, NAT Instance et Security Groups pour Menu Graphique"
 
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
       - Label:
-          default: "Project Configuration"
+          default: "Configuration Generale"
         Parameters:
           - ProjectName
           - EnvironmentType
       - Label:
-          default: "Network Configuration"
+          default: "Configuration Reseau"
         Parameters:
           - VpcCidr
-          - AvailabilityZones
+          - InstanceBits
+          - AvailabilityZoneCount
+      - Label:
+          default: "Configuration de Securite"
+        Parameters:
+          - KeyPairName
 
     ParameterLabels:
       ProjectName:
-        default: "Project Name"
+        default: "Nom du projet"
       EnvironmentType:
-        default: "Environment Type"
+        default: "Type environnement"
       VpcCidr:
-        default: "VPC CIDR Block"
-      SubnetBits:
-        default: "Subnet Bits for Instance Identification"
-      AvailabilityZone:
-        default: "Availability Zones"
+        default: "CIDR Block du VPC"
+      InstanceBits:
+        default: "Bits pour identifier les instances"
+      AvailabilityZoneCount:
+        default: "Nombre de zones de disponibilite"
+      KeyPairName:
+        default: "Nom de la cle SSH"
 
 Parameters:
   ProjectName:
     Type: String
-    Description: "Nom du projet"
+    Description: "Nom du projet (3 a 100 caracteres, alphanumerique)"
     MinLength: 3
     MaxLength: 100
     AllowedPattern: "^[a-zA-Z0-9]+$"
-    Default: test
+    Default: "pub100genies"
+    ConstraintDescription: "Le nom doit etre alphanumerique entre 3 et 100 caracteres."
 
   EnvironmentType:
     Type: String
-    Description: "Type d’environnement (Test ou Prod)"
+    Description: "Type environnement"
+    Default: "Test"
     AllowedValues:
-      - Test
-      - Prod
-    Default: Test
+      - "Test"
+      - "Prod"
+    ConstraintDescription: "Choisissez Test ou Prod"
 
   VpcCidr:
     Type: String
-    Description: "Plage CIDR du VPC"
+    Description: "Plage CIDR du VPC (ex: 10.0.0.0/16)"
     Default: "10.0.0.0/16"
+    AllowedPattern: "^([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}$"
+    ConstraintDescription: "Doit etre une plage CIDR valide (ex: 10.0.0.0/16)."
+
+  InstanceBits:
+    Type: Number
+    Description: "Nombre de bits pour identifier les instances (entre 4 et 16)"
+    Default: 8
+    MinValue: 4
+    MaxValue: 16
+    ConstraintDescription: "Valeur entre 4 et 16."
+
+  AvailabilityZoneCount:
+    Type: Number
+    Description: "Nombre de zones de disponibilite (1 pour Test, 2 pour Prod)"
+    Default: 1
+    AllowedValues:
+      - 1
+      - 2
+    ConstraintDescription: "Choisissez 1 pour Test ou 2 pour Prod"
 
   KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
-    Description: "Nom de la clé SSH"
-
-  AvailabilityZone:
-    Type: AWS::EC2::AvailabilityZone::Name
-    Description: "Zone de disponibilite"
-
-  SubnetBits:
-    Type: Number
-    Description: "Number of bits to identify instances (between 4 and 16)"
-    MinValue: 4
-    MaxValue: 16
-    Default: 8
-    ConstraintDescription: "Value must be between 4 and 16"
+    Description: "Nom KeyPair EC2 existante"
 
 Conditions:
-  isProd: !Equals
-    - !Ref EnvironmentType
-    - prod
+  IsProduction: !Equals [!Ref EnvironmentType, "Prod"]
 
 Resources:
+  # VPC Principal
   MyVPC:
     Type: AWS::EC2::VPC
     Properties:
-      CidrBlock:
-        Ref: VpcCidr
+      CidrBlock: !Ref VpcCidr
       EnableDnsSupport: true
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: !Sub "${ProjectName}-VPC"
+          Value: !Sub "${ProjectName}-${EnvironmentType}-VPC"
+        - Key: Environment
+          Value: !Ref EnvironmentType
+        - Key: Project
+          Value: !Ref ProjectName
 
+  # Internet Gateway
   InternetGateway:
     Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentType}-IGW"
+        - Key: Environment
+          Value: !Ref EnvironmentType
+        - Key: Project
+          Value: !Ref ProjectName
 
   AttachGateway:
     Type: AWS::EC2::VPCGatewayAttachment
@@ -91,37 +118,150 @@ Resources:
       VpcId: !Ref MyVPC
       InternetGatewayId: !Ref InternetGateway
 
-  PublicSubnet:
+  # Sous-reseaux publics
+  PublicSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref MyVPC
-      CidrBlock: !Select [0, !Cidr [!Ref VpcCidr, 4, !Ref SubnetBits]]
-      AvailabilityZone: !Ref AvailabilityZone
+      CidrBlock: !Select [0, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
       MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "${ProjectName}-PublicSubnet"
+          Value: !Sub "${ProjectName}-${EnvironmentType}-PublicSubnet1"
+        - Key: Environment
+          Value: !Ref EnvironmentType
+        - Key: Project
+          Value: !Ref ProjectName
 
-  PrivateSubnet:
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Condition: IsProduction
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentType}-PublicSubnet2"
+        - Key: Environment
+          Value: !Ref EnvironmentType
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # Sous-reseaux prives
+  PrivateSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref MyVPC
-      CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 4, !Ref SubnetBits]]
-      AvailabilityZone: !Ref AvailabilityZone
-      MapPublicIpOnLaunch: true
+      CidrBlock: !Select [2, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "${ProjectName}-PrivateSubnet"
+          Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet1"
+        - Key: Environment
+          Value: !Ref EnvironmentType
+        - Key: Project
+          Value: !Ref ProjectName
 
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: !Select [3, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet2"
+        - Key: Environment
+          Value: !Ref EnvironmentType
+        - Key: Project
+          Value: !Ref ProjectName
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Condition: IsProduction
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: !Select [4, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet3"
+        - Key: Environment
+          Value: !Ref EnvironmentType
+        - Key: Project
+          Value: !Ref ProjectName
+
+  PrivateSubnet4:
+    Type: AWS::EC2::Subnet
+    Condition: IsProduction
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: !Select [5, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet4"
+        - Key: Environment
+          Value: !Ref EnvironmentType
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # Tables de routage
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentType}-PublicRouteTable"
+        - Key: Environment
+          Value: !Ref EnvironmentType
+        - Key: Project
+          Value: !Ref ProjectName
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: IsProduction
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # Security Groups
   JumpBoxSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Security group for the Jump Box
+      GroupDescription: "Security group pour la JumpBox"
       VpcId: !Ref MyVPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
@@ -131,43 +271,234 @@ Resources:
         - Key: Project
           Value: !Ref ProjectName
 
-  NATInstance:
+  WebSiteSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security group pour le site web"
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref JumpBoxSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentType}-WebSiteSG"
+        - Key: Environment
+          Value: !Ref EnvironmentType
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Layer
+          Value: "www"
+
+  APISecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security group pour API"
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref JumpBoxSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentType}-APISG"
+        - Key: Environment
+          Value: !Ref EnvironmentType
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Layer
+          Value: "api"
+
+  LicenseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security group pour le serveur de licence"
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 9090
+          ToPort: 9090
+          SourceSecurityGroupId: !Ref APISecurityGroup
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref JumpBoxSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentType}-LicenseSG"
+        - Key: Environment
+          Value: !Ref EnvironmentType
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Layer
+          Value: "licence"
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security group pour la db"
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3360
+          ToPort: 3360
+          SourceSecurityGroupId: !Ref APISecurityGroup
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref JumpBoxSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentType}-DatabaseSG"
+        - Key: Environment
+          Value: !Ref EnvironmentType
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Layer
+          Value: "bd"
+
+  # NAT Instance
+  NATStack:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: "https://menugraphique-2025-h24-4.s3.us-east-1.amazonaws.com/natInstance.json"
       Parameters:
         VpcId: !Ref MyVPC
-        PublicSubnetId: !Ref PublicSubnet
-        PrivatesSubnetsID: !Ref PrivateSubnet
+        PublicSubnetId: !Ref PublicSubnet1
+        PrivatesSubnetsID: !If
+          - IsProduction
+          - !Join [
+              ",",
+              [
+                !Ref PrivateSubnet1,
+                !Ref PrivateSubnet2,
+                !Ref PrivateSubnet3,
+                !Ref PrivateSubnet4,
+              ],
+            ]
+          - !Join [",", [!Ref PrivateSubnet1, !Ref PrivateSubnet2]]
         KeyPairName: !Ref KeyPairName
 
 Outputs:
   VpcId:
-    Description: "ID du VPC créé"
+    Description: "ID du VPC cree"
     Value: !Ref MyVPC
     Export:
       Name: !Sub "${AWS::StackName}-VpcId"
 
-  PublicSubnetId:
-    Description: "ID du sous-réseau public"
-    Value: !Ref PublicSubnet
+  PublicSubnet1Id:
+    Description: "ID du premier sous-reseau public"
+    Value: !Ref PublicSubnet1
     Export:
-      Name: !Sub "${AWS::StackName}-PublicSubnetId"
+      Name: !Sub "${AWS::StackName}-PublicSubnet1Id"
 
-  PrivateSubnetId:
-    Description: "ID du sous-réseau privé"
-    Value: !Ref PrivateSubnet
+  PublicSubnet2Id:
+    Condition: IsProduction
+    Description: "ID du second sous-reseau public"
+    Value: !Ref PublicSubnet2
     Export:
-      Name: !Sub "${AWS::StackName}-PrivateSubnetId"
+      Name: !Sub "${AWS::StackName}-PublicSubnet2Id"
 
-  ProjectNameOutput:
+  PrivateSubnet1Id:
+    Description: "ID du premier sous-reseau prive (licence)"
+    Value: !Ref PrivateSubnet1
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnet1Id"
+
+  PrivateSubnet2Id:
+    Description: "ID du second sous-reseau prive (database)"
+    Value: !Ref PrivateSubnet2
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnet2Id"
+
+  PrivateSubnet3Id:
+    Condition: IsProduction
+    Description: "ID du troisieme sous-reseau prive"
+    Value: !Ref PrivateSubnet3
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnet3Id"
+
+  PrivateSubnet4Id:
+    Condition: IsProduction
+    Description: "ID du quatrieme sous-reseau prive"
+    Value: !Ref PrivateSubnet4
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnet4Id"
+
+  ProjectName:
     Description: "Nom du projet"
     Value: !Ref ProjectName
     Export:
       Name: !Sub "${AWS::StackName}-ProjectName"
 
-  EnvironmentTypeOutput:
-    Description: "Type d'environnement"
+  EnvironmentType:
+    Description: "Type environnement"
     Value: !Ref EnvironmentType
     Export:
       Name: !Sub "${AWS::StackName}-EnvironmentType"
+
+  JumpBoxSecurityGroupId:
+    Description: "ID du groupe de securite pour la JumpBox"
+    Value: !Ref JumpBoxSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-JumpBoxSGId"
+
+  WebSiteSecurityGroupId:
+    Description: "ID du groupe de securite pour le site web"
+    Value: !Ref WebSiteSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-WebSiteSGId"
+
+  APISecurityGroupId:
+    Description: "ID du groupe de securite pour API"
+    Value: !Ref APISecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-APISGId"
+
+  LicenseSecurityGroupId:
+    Description: "ID du groupe de securite pour le serveur de licence"
+    Value: !Ref LicenseSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-LicenseSGId"
+
+  DatabaseSecurityGroupId:
+    Description: "ID du groupe de securite pour la base de donnees"
+    Value: !Ref DatabaseSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-DatabaseSGId"
+
+  NATInstanceId:
+    Description: "ID de instance NAT"
+    Value: !GetAtt NATStack.Outputs.NatInstanceId
+    Export:
+      Name: !Sub "${AWS::StackName}-NATInstanceId"

@@ -1,5 +1,28 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "Template Cloud Formation pour creation de serveurs"
+Description: "Template Cloud Formation pour creation de serveurs MenuGraphique"
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Configuration Générale"
+        Parameters:
+          - NetworkStackName
+          - KeyPairName
+          - S3BucketScripts
+      - Label:
+          default: "Configuration DNS"
+        Parameters:
+          - DNSPrefix
+      - Label:
+          default: "Configuration Base de Données"
+        Parameters:
+          - DBUser
+          - DBRootPassword
+      - Label:
+          default: "Configuration Licence"
+        Parameters:
+          - License
 
 Parameters:
   NetworkStackName:
@@ -14,30 +37,57 @@ Parameters:
     Type: String
     Description: "Nom du bucket S3 contenant les scripts d'installation"
     Default: "menugraphique-2025-h24-4"
+    MinLength: 3
+    AllowedPattern: "^[a-zA-Z0-9.-]+$"
+    ConstraintDescription: "Le nom du bucket doit être alphanumérique avec des points et des tirets."
+
+  DNSPrefix:
+    Type: String
+    Description: "Préfixe DNS pour les noms de sous-domaine (e.g. 'production.' ou vide)"
+    AllowedPattern: "^([a-z]+\\.)?$|^$"
+    Default: ""
+    ConstraintDescription: "Le préfixe doit être vide ou composé de lettres minuscules suivies d'un point."
 
   DBUser:
     Type: String
     Description: "Nom d'utilisateur de la base de données"
     MinLength: 3
     AllowedPattern: "^[a-zA-Z0-9]+$"
+    ConstraintDescription: "Le nom d'utilisateur doit être alphanumérique avec au moins 3 caractères."
 
   DBRootPassword:
     Type: String
     Description: "Mot de passe root de la base de données"
     NoEcho: true
     MinLength: 8
+    AllowedPattern: "^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#$%^&*]).*$"
+    ConstraintDescription: "Le mot de passe doit comporter au moins 8 caractères, une minuscule, une majuscule, un chiffre et un caractère spécial."
 
   License:
     Type: String
     Description: "Licence de serveur MenuGraphique"
     MinLength: 129
     MaxLength: 129
+    NoEcho: true
+
+  EnvironmentType:
+    Type: String
+    Description: "Type d'environnement (Prod ou Dev)"
+    Default: "Dev"
+    AllowedValues:
+      - "Prod"
+      - "Dev"
+
+Conditions:
+  IsProd: !Equals
+    - !Ref EnvironmentType
+    - "Prod"
 
 Resources:
   WebServiceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Security group for Database server
+      GroupDescription: Security group for Web Service
       VpcId: !ImportValue
         Fn::Sub: "${NetworkStackName}-VpcId"
       SecurityGroupIngress:
@@ -45,6 +95,60 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !ImportValue
+            Fn::Sub: "${NetworkStackName}-JumpBoxSGId"
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${NetworkStackName}-WebServiceSG"
+        - Key: Layer
+          Value: "api"
+        - Key: Environment
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-EnvironmentType"
+        - Key: Project
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-ProjectName"
+
+  WebSiteSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Website server
+      VpcId: !ImportValue
+        Fn::Sub: "${NetworkStackName}-VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !ImportValue
+            Fn::Sub: "${NetworkStackName}-JumpBoxSGId"
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${NetworkStackName}-WebSiteSG"
+        - Key: Layer
+          Value: "www"
+        - Key: Environment
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-EnvironmentType"
+        - Key: Project
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-ProjectName"
 
   DbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -54,14 +158,30 @@ Resources:
         Fn::Sub: "${NetworkStackName}-VpcId"
       SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: 3306
-          ToPort: 3306
+          FromPort: 3360
+          ToPort: 3360
+          SourceSecurityGroupId: !Ref WebServiceSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !ImportValue
+            Fn::Sub: "${NetworkStackName}-JumpBoxSGId"
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
           Value: !Sub "${NetworkStackName}-DbSG"
         - Key: Layer
           Value: "bd"
+        - Key: Environment
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-EnvironmentType"
+        - Key: Project
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-ProjectName"
 
   LicenseSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -71,9 +191,30 @@ Resources:
         Fn::Sub: "${NetworkStackName}-VpcId"
       SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
+          FromPort: 9090
+          ToPort: 9090
           SourceSecurityGroupId: !Ref WebServiceSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !ImportValue
+            Fn::Sub: "${NetworkStackName}-JumpBoxSGId"
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${NetworkStackName}-LicenseSG"
+        - Key: Layer
+          Value: "licence"
+        - Key: Environment
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-EnvironmentType"
+        - Key: Project
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-ProjectName"
 
   WebSiteLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
@@ -81,23 +222,41 @@ Resources:
       LaunchTemplateName: !Sub "${NetworkStackName}-WebSiteLaunchTemplate"
       VersionDescription: Initial version
       LaunchTemplateData:
-        ImageId: ami-0c7217cdde317cfec
-        InstanceType: t2.small
+        ImageId: ami-08b5b3a93ed654d19
+        InstanceType: !If [IsProd, "t2.medium", "t2.small"]
         KeyName: !Ref KeyPairName
         SecurityGroupIds:
-          - !Ref WebServiceSecurityGroup
+          - !Ref WebSiteSecurityGroup
+        IamInstanceProfile:
+          Name: "LabInstanceProfile"
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
+            # Logging
+            exec > >(tee /var/log/user-data.log) 2>&1
+            echo "Starting website installation - $(date)"
 
+            # Update system
             sudo dnf update -y
 
-            sudo amazon-linux-extras enable nginx1
+            # Install nginx
             sudo dnf install -y nginx
 
+            # Set up directory structure
             mkdir -p /home/ec2-user/siteweb
 
-            aws s3 cp s3://menugraphique-2025-h24-4/site-web/ /home/ec2-user/siteweb --recursive
+            # Download site files from S3
+            aws s3 cp s3://${S3BucketScripts}/site-web/ /home/ec2-user/siteweb --recursive
+
+            # Modify config.js to use the correct DNS prefix
+            CONFIG_FILE="/home/ec2-user/siteweb/js/config.js"
+            if [ -f "$CONFIG_FILE" ]; then
+              echo "Updating API endpoint in config.js..."
+              sed -i "s/api\.team/api.${DNSPrefix}team/" "$CONFIG_FILE"
+              cat $CONFIG_FILE
+            else
+              echo "Warning: config.js not found!"
+            fi
 
             sudo mv -f /home/ec2-user/siteweb/nginx.conf /etc/nginx/nginx.conf
             sudo nginx -t
@@ -111,8 +270,10 @@ Resources:
 
             sudo chmod +x /home/ec2-user
 
-            sudo find /home/ec2-user/siteweb -type d -exec chmod 755 {} ;
-            sudo find /home/ec2-user/siteweb -type f -exec chmod 644 {} ;
+            sudo find /home/ec2-user/siteweb -type d -exec chmod 755 {} \;
+            sudo find /home/ec2-user/siteweb -type f -exec chmod 644 {} \;
+
+            echo "Website installation completed - $(date)"
 
   WebServiceLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
@@ -120,8 +281,8 @@ Resources:
       LaunchTemplateName: !Sub "${NetworkStackName}-WebServiceLaunchTemplate"
       VersionDescription: Initial version
       LaunchTemplateData:
-        ImageId: ami-0c7217cdde317cfec
-        InstanceType: t2.small
+        ImageId: ami-08b5b3a93ed654d19
+        InstanceType: !If [IsProd, "t2.medium", "t2.small"]
         KeyName: !Ref KeyPairName
         SecurityGroupIds:
           - !Ref WebServiceSecurityGroup
@@ -158,7 +319,7 @@ Resources:
             mkdir -p "/backend-server"
 
             # Copy the web server files from S3 into the backend-server directory
-            aws s3 cp s3://menugraphique-2025-h24-4/web-server/ "/backend-server/" --recursive
+            aws s3 cp s3://${S3BucketScripts}/web-server/ "/backend-server/" --recursive
 
             # Change directory to the backend-server directory
             cd "/backend-server"
@@ -172,10 +333,33 @@ Resources:
             echo "Creating environment directory at /etc/webserver..."
             mkdir -p "/etc/webserver"
 
-            # Move configuration files to their proper locations
-            echo "Moving configuration files to their destinations..."
-            mv "/backend-server/config-files/webserver.env" "/etc/webserver/webserver.env"
-            mv "/backend-server/config-files/webserver.service" "/etc/systemd/system/webserver.service"
+            # Create environment configuration
+            cat > "/etc/webserver/webserver.env" << EOF
+            DB_HOST=db.${DNSPrefix}team4.ind250.ets.bimweb.net
+            DB_PORT=3360
+            DB_USER=${DBUser}
+            DB_PASSWORD=${DBRootPassword}
+            LICENSE_SERVER=licence.${DNSPrefix}team4.ind250.ets.bimweb.net
+            LICENSE_PORT=9090
+            EOF
+
+            # Create service file
+            cat > "/etc/systemd/system/webserver.service" << EOF
+            [Unit]
+            Description=Menu Graphique Web Service
+            After=network.target
+
+            [Service]
+            Type=simple
+            User=root
+            WorkingDirectory=/backend-server
+            ExecStart=/usr/bin/java -jar /backend-server/webserver.jar
+            EnvironmentFile=/etc/webserver/webserver.env
+            Restart=on-failure
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
 
             # Secure the environment file so only root can read it
             chmod 600 "/etc/webserver/webserver.env"
@@ -202,8 +386,8 @@ Resources:
     Properties:
       LaunchTemplateName: !Sub "${NetworkStackName}-DbLaunchTemplate"
       LaunchTemplateData:
-        ImageId: ami-0c7217cdde317cfec
-        InstanceType: t2.micro
+        ImageId: ami-08b5b3a93ed654d19
+        InstanceType: !If [IsProd, "t2.medium", "t2.micro"]
         KeyName: !Ref KeyPairName
         SecurityGroupIds:
           - !Ref DbSecurityGroup
@@ -211,19 +395,25 @@ Resources:
           Name: "LabInstanceProfile"
         UserData:
           Fn::Base64: !Sub |
+            #!/bin/bash
+            # Define environment variables
             export DBRootPassword="${DBRootPassword}"
             export DBUser="${DBUser}"
 
-            LOGFILE="/var/log/webserver_install.log"
+            LOGFILE="/var/log/db_install.log"
             exec > >(tee -a "$LOGFILE") 2>&1
-            echo "=== Starting webserver installation script at $(date) ==="
+            echo "=== Starting database installation script at $(date) ==="
 
             sudo dnf update -y
             sudo dnf install mariadb105-server -y
 
+            # Configure MariaDB to listen on port 3360
+            sudo bash -c 'echo "[mysqld]" > /etc/my.cnf.d/custom.cnf'
+            sudo bash -c 'echo "port=3360" >> /etc/my.cnf.d/custom.cnf'
+
             # Download configuration and setup files from S3
-            sudo aws s3 cp s3://menugraphique-2025-h24-4/db-files/db.setup /tmp/db.setup
-            sudo aws s3 cp s3://menugraphique-2025-h24-4/db-files/mariadb-server.cnf /tmp/mariadb-server.cnf
+            sudo aws s3 cp s3://${S3BucketScripts}/db-files/db.setup /tmp/db.setup
+            sudo aws s3 cp s3://${S3BucketScripts}/db-files/mariadb-server.cnf /tmp/mariadb-server.cnf
 
             # Move the config file to the correct location
             sudo mv /tmp/mariadb-server.cnf /etc/my.cnf.d/mariadb-server.cnf
@@ -235,6 +425,26 @@ Resources:
             # Set root password
             sudo mysqladmin -u root password "${DBRootPassword}"
 
+            # Create SQL setup script if not available from S3
+            if [ ! -f /tmp/db.setup ]; then
+              cat > /tmp/db.setup << EOF
+            -- Secure the root account
+            ALTER USER 'root'@'localhost' IDENTIFIED BY '${DBRootPassword}';
+
+            -- Create application user
+            CREATE USER '${DBUser}'@'%' IDENTIFIED BY '${DBRootPassword}';
+
+            -- Create database
+            CREATE DATABASE menugraphique;
+
+            -- Grant privileges to application user
+            GRANT ALL PRIVILEGES ON menugraphique.* TO '${DBUser}'@'%';
+
+            -- Apply changes
+            FLUSH PRIVILEGES;
+            EOF
+            fi
+
             # Execute SQL setup
             mysql -u root --password="${DBRootPassword}" < /tmp/db.setup
 
@@ -244,16 +454,18 @@ Resources:
             # Restart MariaDB
             sudo systemctl restart mariadb
 
+            echo "=== Database installation completed at $(date) ==="
+
   LicenseLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
       LaunchTemplateName: !Sub "${NetworkStackName}-LicenseLaunchTemplate"
       LaunchTemplateData:
-        ImageId: ami-0c7217cdde317cfec
-        InstanceType: t2.micro
+        ImageId: ami-08b5b3a93ed654d19
+        InstanceType: !If [IsProd, "t2.medium", "t2.micro"]
         KeyName: !Ref KeyPairName
         SecurityGroupIds:
-          - !Ref DbSecurityGroup
+          - !Ref LicenseSecurityGroup
         IamInstanceProfile:
           Name: "LabInstanceProfile"
         UserData:
@@ -262,44 +474,80 @@ Resources:
 
             exec > >(tee -i /var/log/serveur-licence-install.log) 2>&1
             set -e
+            echo "=== Starting license server installation at $(date) ==="
 
             sudo dnf update -y
-            sudo dnf install -y nodejs npm aws-cli
+            sudo dnf install -y nodejs npm
 
-            sudo mkdir -p /home/ec2-user/serveur-licence
-            sudo chown -R ec2-user:ec2-user /home/ec2-user/serveur-licence
-            sudo chmod -R 755 /home/ec2-user/serveur-licence
+            sudo mkdir -p /opt/license-server
+            sudo chown -R ec2-user:ec2-user /opt/license-server
+            sudo chmod -R 755 /opt/license-server
 
-            aws s3 cp s3://menugraphique-2025-h24-4/service_license/ /home/ec2-user/serveur-licence/ --recursive
+            aws s3 cp s3://${S3BucketScripts}/service_license/ /opt/license-server/ --recursive
 
-            cd /home/ec2-user/serveur-licence
+            cd /opt/license-server
 
             npm install
-            node generate.js
 
+            # Use provided license instead of generating one
+            echo "${License}" > /opt/license-server/license.key
+
+            # Create systemd service file
+            cat > /etc/systemd/system/license-server.service << EOF
+            [Unit]
+            Description=Menu Graphique License Server
+            After=network.target
+
+            [Service]
+            Type=simple
+            User=ec2-user
+            WorkingDirectory=/opt/license-server
+            ExecStart=/usr/bin/node /opt/license-server/index.js
+            Environment=PORT=9090
+            Restart=on-failure
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+            # Install PM2 (process manager)
             sudo npm install -g pm2
-            pm2 start index.js --name serveur-licence --watch -- 8080
 
+            # Start the service using PM2
+            pm2 start index.js --name license-server --watch -- 9090
+
+            # Setup PM2 to start on boot
             sudo pm2 startup systemd -u ec2-user --hp /home/ec2-user
             pm2 save
 
-            sudo firewall-cmd --permanent --add-port=8080/tcp
-            sudo firewall-cmd --reload
+            # Enable and start the systemd service as a backup option
+            sudo systemctl daemon-reload
+            sudo systemctl enable license-server
 
+            echo "=== License server installation completed at $(date) ==="
+
+  # Instances for different environments
   DbInstance:
     Type: AWS::EC2::Instance
     Properties:
       LaunchTemplate:
         LaunchTemplateId: !Ref DbLaunchTemplate
         Version: !GetAtt DbLaunchTemplate.LatestVersionNumber
-      SubnetId: !ImportValue
-        Fn::Sub: "${NetworkStackName}-PrivateSubnetId"
+      SubnetId: !If
+        - IsProd
+        - !ImportValue
+          Fn::Sub: "${NetworkStackName}-PrivateSubnet2Id"
+        - !ImportValue
+          Fn::Sub: "${NetworkStackName}-PrivateSubnet1Id"
       Tags:
         - Key: Name
           Value: !Sub "${NetworkStackName}-DbServer"
         - Key: Project
           Value: !ImportValue
             Fn::Sub: "${NetworkStackName}-ProjectName"
+        - Key: Environment
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-EnvironmentType"
         - Key: Layer
           Value: "bd"
 
@@ -309,16 +557,23 @@ Resources:
       LaunchTemplate:
         LaunchTemplateId: !Ref LicenseLaunchTemplate
         Version: !GetAtt LicenseLaunchTemplate.LatestVersionNumber
-      SubnetId: !ImportValue
-        Fn::Sub: "${NetworkStackName}-PrivateSubnetId"
+      SubnetId: !If
+        - IsProd
+        - !ImportValue
+          Fn::Sub: "${NetworkStackName}-PrivateSubnet1Id"
+        - !ImportValue
+          Fn::Sub: "${NetworkStackName}-PrivateSubnet1Id"
       Tags:
         - Key: Name
           Value: !Sub "${NetworkStackName}-LicenseServer"
         - Key: Project
           Value: !ImportValue
             Fn::Sub: "${NetworkStackName}-ProjectName"
+        - Key: Environment
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-EnvironmentType"
         - Key: Layer
-          Value: "license"
+          Value: "licence"
 
   WebServiceInstance:
     Type: AWS::EC2::Instance
@@ -326,8 +581,23 @@ Resources:
       LaunchTemplate:
         LaunchTemplateId: !Ref WebServiceLaunchTemplate
         Version: !GetAtt WebServiceLaunchTemplate.LatestVersionNumber
-      SubnetId: !ImportValue
-        Fn::Sub: "${NetworkStackName}-PublicSubnetId"
+      SubnetId: !If
+        - IsProd
+        - !ImportValue
+          Fn::Sub: "${NetworkStackName}-PublicSubnet1Id"
+        - !ImportValue
+          Fn::Sub: "${NetworkStackName}-PublicSubnet1Id"
+      Tags:
+        - Key: Name
+          Value: !Sub "${NetworkStackName}-WebServiceServer"
+        - Key: Project
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-ProjectName"
+        - Key: Environment
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-EnvironmentType"
+        - Key: Layer
+          Value: "api"
 
   WebSiteInstance:
     Type: AWS::EC2::Instance
@@ -335,14 +605,114 @@ Resources:
       LaunchTemplate:
         LaunchTemplateId: !Ref WebSiteLaunchTemplate
         Version: !GetAtt WebSiteLaunchTemplate.LatestVersionNumber
-      SubnetId: !ImportValue
-        Fn::Sub: "${NetworkStackName}-PublicSubnetId"
+      SubnetId: !If
+        - IsProd
+        - !ImportValue
+          Fn::Sub: "${NetworkStackName}-PublicSubnet2Id"
+        - !ImportValue
+          Fn::Sub: "${NetworkStackName}-PublicSubnet1Id"
+      Tags:
+        - Key: Name
+          Value: !Sub "${NetworkStackName}-WebSiteServer"
+        - Key: Project
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-ProjectName"
+        - Key: Environment
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-EnvironmentType"
+        - Key: Layer
+          Value: "www"
+
+  # Elastic IPs for public instances
+  WebSiteEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${NetworkStackName}-WebSiteEIP"
+        - Key: Project
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-ProjectName"
+        - Key: Environment
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-EnvironmentType"
+        - Key: Layer
+          Value: "www"
+
+  WebServiceEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${NetworkStackName}-WebServiceEIP"
+        - Key: Project
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-ProjectName"
+        - Key: Environment
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-EnvironmentType"
+        - Key: Layer
+          Value: "api"
+
+  WebSiteEIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt WebSiteEIP.AllocationId
+      InstanceId: !Ref WebSiteInstance
+
+  WebServiceEIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt WebServiceEIP.AllocationId
+      InstanceId: !Ref WebServiceInstance
 
 Outputs:
-  DbServerPrivateIP:
+  DBServerPrivateIP:
     Description: "Adresse IP privée du serveur de base de données"
     Value: !GetAtt DbInstance.PrivateIp
+    Export:
+      Name: !Sub "${AWS::StackName}-DBServerPrivateIP"
+
+  LicenseServerPrivateIP:
+    Description: "Adresse IP privée du serveur de licence"
+    Value: !GetAtt LicenseInstance.PrivateIp
+    Export:
+      Name: !Sub "${AWS::StackName}-LicenseServerPrivateIP"
+
+  WebSitePublicIP:
+    Description: "Adresse IP publique du site web"
+    Value: !Ref WebSiteEIP
+    Export:
+      Name: !Sub "${AWS::StackName}-WebSitePublicIP"
+
+  WebServicePublicIP:
+    Description: "Adresse IP publique du service web"
+    Value: !Ref WebServiceEIP
+    Export:
+      Name: !Sub "${AWS::StackName}-WebServicePublicIP"
+
+  WebSiteSecurityGroupId:
+    Description: "ID du groupe de sécurité du site web"
+    Value: !Ref WebSiteSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-WebSiteSGId"
+
+  WebServiceSecurityGroupId:
+    Description: "ID du groupe de sécurité du service web"
+    Value: !Ref WebServiceSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-WebServiceSGId"
 
   DbSecurityGroupId:
     Description: "ID du groupe de sécurité de la base de données"
     Value: !Ref DbSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-DbSGId"
+
+  LicenseSecurityGroupId:
+    Description: "ID du groupe de sécurité du serveur de licence"
+    Value: !Ref LicenseSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-LicenseSGId"
