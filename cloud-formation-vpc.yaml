@@ -68,14 +68,9 @@ Parameters:
     MaxValue: 16
     ConstraintDescription: "Valeur entre 4 et 16."
 
-  AvailabilityZoneCount:
-    Type: Number
-    Description: "Nombre de zones de disponibilite (1 pour Test, 2 pour Prod)"
-    Default: 1
-    AllowedValues:
-      - 1
-      - 2
-    ConstraintDescription: "Choisissez 1 pour Test ou 2 pour Prod"
+  AvailabilityZones:
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+    Description: "Zones de disponibilite"
 
   KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
@@ -141,7 +136,7 @@ Resources:
       VpcId: !Ref MyVPC
       CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
       MapPublicIpOnLaunch: true
-      AvailabilityZone: !Select [1, !GetAZs ""]
+      AvailabilityZones: !Ref AvailabilityZones
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-${EnvironmentType}-PublicSubnet2"
@@ -157,7 +152,7 @@ Resources:
       VpcId: !Ref MyVPC
       CidrBlock: !Select [2, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
       MapPublicIpOnLaunch: false
-      AvailabilityZone: !Select [0, !GetAZs ""]
+      AvailabilityZones: !Ref AvailabilityZones
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet1"
@@ -172,7 +167,7 @@ Resources:
       VpcId: !Ref MyVPC
       CidrBlock: !Select [3, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
       MapPublicIpOnLaunch: false
-      AvailabilityZone: !Select [0, !GetAZs ""]
+      AvailabilityZones: !Ref AvailabilityZones
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet2"
@@ -188,7 +183,7 @@ Resources:
       VpcId: !Ref MyVPC
       CidrBlock: !Select [4, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
       MapPublicIpOnLaunch: false
-      AvailabilityZone: !Select [1, !GetAZs ""]
+      AvailabilityZones: !Ref AvailabilityZones
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet3"
@@ -204,7 +199,7 @@ Resources:
       VpcId: !Ref MyVPC
       CidrBlock: !Select [5, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
       MapPublicIpOnLaunch: false
-      AvailabilityZone: !Select [1, !GetAZs ""]
+      AvailabilityZones: !Ref AvailabilityZones
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet4"
@@ -271,123 +266,6 @@ Resources:
         - Key: Project
           Value: !Ref ProjectName
 
-  WebSiteSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: "Security group pour le site web"
-      VpcId: !Ref MyVPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          SourceSecurityGroupId: !Ref JumpBoxSecurityGroup
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          FromPort: -1
-          ToPort: -1
-          CidrIp: 0.0.0.0/0
-      Tags:
-        - Key: Name
-          Value: !Sub "${ProjectName}-${EnvironmentType}-WebSiteSG"
-        - Key: Environment
-          Value: !Ref EnvironmentType
-        - Key: Project
-          Value: !Ref ProjectName
-        - Key: Layer
-          Value: "www"
-
-  APISecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: "Security group pour API"
-      VpcId: !Ref MyVPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          SourceSecurityGroupId: !Ref JumpBoxSecurityGroup
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          FromPort: -1
-          ToPort: -1
-          CidrIp: 0.0.0.0/0
-      Tags:
-        - Key: Name
-          Value: !Sub "${ProjectName}-${EnvironmentType}-APISG"
-        - Key: Environment
-          Value: !Ref EnvironmentType
-        - Key: Project
-          Value: !Ref ProjectName
-        - Key: Layer
-          Value: "api"
-
-  LicenseSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: "Security group pour le serveur de licence"
-      VpcId: !Ref MyVPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 9090
-          ToPort: 9090
-          SourceSecurityGroupId: !Ref APISecurityGroup
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          SourceSecurityGroupId: !Ref JumpBoxSecurityGroup
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          FromPort: -1
-          ToPort: -1
-          CidrIp: 0.0.0.0/0
-      Tags:
-        - Key: Name
-          Value: !Sub "${ProjectName}-${EnvironmentType}-LicenseSG"
-        - Key: Environment
-          Value: !Ref EnvironmentType
-        - Key: Project
-          Value: !Ref ProjectName
-        - Key: Layer
-          Value: "licence"
-
-  DatabaseSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: "Security group pour la db"
-      VpcId: !Ref MyVPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 3360
-          ToPort: 3360
-          SourceSecurityGroupId: !Ref APISecurityGroup
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          SourceSecurityGroupId: !Ref JumpBoxSecurityGroup
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          FromPort: -1
-          ToPort: -1
-          CidrIp: 0.0.0.0/0
-      Tags:
-        - Key: Name
-          Value: !Sub "${ProjectName}-${EnvironmentType}-DatabaseSG"
-        - Key: Environment
-          Value: !Ref EnvironmentType
-        - Key: Project
-          Value: !Ref ProjectName
-        - Key: Layer
-          Value: "bd"
-
-  # NAT Instance
   NATStack:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -472,30 +350,6 @@ Outputs:
     Value: !Ref JumpBoxSecurityGroup
     Export:
       Name: !Sub "${AWS::StackName}-JumpBoxSGId"
-
-  WebSiteSecurityGroupId:
-    Description: "ID du groupe de securite pour le site web"
-    Value: !Ref WebSiteSecurityGroup
-    Export:
-      Name: !Sub "${AWS::StackName}-WebSiteSGId"
-
-  APISecurityGroupId:
-    Description: "ID du groupe de securite pour API"
-    Value: !Ref APISecurityGroup
-    Export:
-      Name: !Sub "${AWS::StackName}-APISGId"
-
-  LicenseSecurityGroupId:
-    Description: "ID du groupe de securite pour le serveur de licence"
-    Value: !Ref LicenseSecurityGroup
-    Export:
-      Name: !Sub "${AWS::StackName}-LicenseSGId"
-
-  DatabaseSecurityGroupId:
-    Description: "ID du groupe de securite pour la base de donnees"
-    Value: !Ref DatabaseSecurityGroup
-    Export:
-      Name: !Sub "${AWS::StackName}-DatabaseSGId"
 
   NATInstanceId:
     Description: "ID de instance NAT"
