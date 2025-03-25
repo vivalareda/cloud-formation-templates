@@ -120,7 +120,7 @@ Resources:
       VpcId: !Ref MyVPC
       CidrBlock: !Select [0, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
       MapPublicIpOnLaunch: true
-      AvailabilityZone: !Select [0, !GetAZs ""]
+      AvailabilityZone: !Select [0, !Ref AvailabilityZones]
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-${EnvironmentType}-PublicSubnet1"
@@ -136,7 +136,7 @@ Resources:
       VpcId: !Ref MyVPC
       CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
       MapPublicIpOnLaunch: true
-      AvailabilityZones: !Ref AvailabilityZones
+      AvailabilityZone: !Select [0, !Ref AvailabilityZones]
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-${EnvironmentType}-PublicSubnet2"
@@ -152,7 +152,7 @@ Resources:
       VpcId: !Ref MyVPC
       CidrBlock: !Select [2, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
       MapPublicIpOnLaunch: false
-      AvailabilityZones: !Ref AvailabilityZones
+      AvailabilityZone: !Select [0, !Ref AvailabilityZones]
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet1"
@@ -167,7 +167,7 @@ Resources:
       VpcId: !Ref MyVPC
       CidrBlock: !Select [3, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
       MapPublicIpOnLaunch: false
-      AvailabilityZones: !Ref AvailabilityZones
+      AvailabilityZone: !Select [0, !Ref AvailabilityZones]
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet2"
@@ -183,7 +183,7 @@ Resources:
       VpcId: !Ref MyVPC
       CidrBlock: !Select [4, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
       MapPublicIpOnLaunch: false
-      AvailabilityZones: !Ref AvailabilityZones
+      AvailabilityZone: !Select [0, !Ref AvailabilityZones]
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet3"
@@ -199,7 +199,7 @@ Resources:
       VpcId: !Ref MyVPC
       CidrBlock: !Select [5, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
       MapPublicIpOnLaunch: false
-      AvailabilityZones: !Ref AvailabilityZones
+      AvailabilityZone: !Select [0, !Ref AvailabilityZones]
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet4"
@@ -269,7 +269,7 @@ Resources:
   NATStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: "https://menugraphique-2025-h24-4.s3.us-east-1.amazonaws.com/natInstance.json"
+      TemplateURL: "https://menugraphique-2025-h24-22.s3.us-east-1.amazonaws.com/natInstance.json"
       Parameters:
         VpcId: !Ref MyVPC
         PublicSubnetId: !Ref PublicSubnet1
@@ -350,9 +350,3 @@ Outputs:
     Value: !Ref JumpBoxSecurityGroup
     Export:
       Name: !Sub "${AWS::StackName}-JumpBoxSGId"
-
-  NATInstanceId:
-    Description: "ID de instance NAT"
-    Value: !GetAtt NATStack.Outputs.NatInstanceId
-    Export:
-      Name: !Sub "${AWS::StackName}-NATInstanceId"
