@@ -1,0 +1,25 @@
+.thumbnailPizza {
+  width:250px
+}
+
+.notificationPan {
+  z-index: 100;
+  position: fixed;
+  bottom: 10px;
+  right: 10px;
+  width: 35%;
+  padding: 0px;
+}
+
+.notificationPan > * {
+  margin-top:5px;
+  margin-bottom:0px;
+  margin-right:0px;
+
+}
+
+.notificationPan .alert a{
+  cursor: hand;
+  text-decoration: underline;
+  font-weight: bold;
+}

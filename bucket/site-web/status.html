@@ -1,0 +1,161 @@
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <link href="css/bootstrap.min.css" rel="stylesheet"></link>
+  <script src="js/config.js"></script>
+  <script src="js/utils.js"></script>
+  <script>
+    const refresh=function(){
+      fetch(getHost()+"/status").then(res=>{
+        if(!res.ok){
+          throw new Error("Http error "+res.status);
+        }
+        return res;
+      }).then(res=>{
+        return res.json();
+      }).then(data=>{
+        updateStatus(data);
+      }).catch(err=>{
+        updateStatus({error:err.message});
+      });
+    }
+
+    const updateStatus=function(data){
+      emptyService();
+      addService("Last update",(new Date()).toISOString());      
+      for (const key in data) {
+        if (data.hasOwnProperty(key)) {
+          addService(key,data[key]);
+        }
+      }
+    }
+
+    const emptyService=function(){
+      let table=document.getElementById("statusData");
+      while(table.firstChild){
+        table.removeChild(table.firstChild);
+      }
+    }
+
+    const addService=function(service,status){
+      let table=document.getElementById("statusData");
+      let tr = document.createElement("tr");
+      
+      let tdService = document.createElement("td");
+      tdService.appendChild(document.createTextNode(service));
+      tr.appendChild(tdService);
+
+      let tdStatus = document.createElement("td");
+      tdStatus.appendChild(document.createTextNode(status));
+      tr.appendChild(tdStatus);
+
+      table.appendChild(tr);
+    }
+
+    const init = function(){
+      document.getElementById("btnRefresh").addEventListener("click",refresh);
+      document.getElementById("btnGenerate").addEventListener("click",generateLoadClick);
+      updateAccess(false);
+      refresh();
+    }
+
+    const handleError = function(err){
+      showError(err.message);
+      console.error(err);
+    }
+
+    const generateLoadClick = function(){
+      let vcpuUsage = parseInt(document.getElementById("vcpuUsage").value,10);
+      let vcpuDuration = parseInt(document.getElementById("vcpuDuration").value,10);
+
+      if(isNaN(vcpuUsage) || !(vcpuUsage>=10 && vcpuUsage<=100)){
+        handleError(new Error("vCPU usage must be between 10 and 100."));
+        return;
+      }
+
+      if(isNaN(vcpuDuration) || !(vcpuDuration>0)){
+        handleError(new Error("Duration must be a positive number."));
+        return;
+      }
+      updateAccess(true);
+      generateLoad(vcpuUsage/100.0,vcpuDuration*1000).then(res=>{
+        //terminer
+      }).catch(err=>{
+        handleError(err);
+      }).finally(()=>{
+        updateAccess(false);
+      });
+    }
+
+    const updateAccess=function(crunching){
+      let usage = document.getElementById("vcpuUsage");
+      let duration = document.getElementById("vcpuDuration");
+      usage.disabled=crunching;
+      usage.readOnly=crunching;
+      duration.disabled=crunching;
+      duration.readOnly=crunching;
+      handleBtnSpinner("btnGenerate",crunching);
+    }
+
+    const generateLoad = function(load, duration){
+      return fetch(getHost()+"/loadtest?load="+load+"&duration="+duration).then(res=>{
+        if(!res.ok){
+          return new Error("HTTP error "+res.status);
+        }
+        return res;
+      });
+    }
+
+    const showError=function(erreur,title, alertType){
+      showAlert("divGenerate",erreur,title, alertType);
+    }    
+
+    window.addEventListener("load",init);
+  </script>
+</head>
+<body>
+  <nav class="navbar navbar-dark bg-dark mb-4 px-4">
+    <a class="navbar-brand" href="index.html">Menu Graphique</a>
+    
+    <button class="btn btn-success my-2 my-sm-0" id="btnRefresh">Refresh</button>    
+  </nav>
+
+  <main role="main" class="container">
+  
+    <table class="table table-striped">
+      <thead>
+        <tr>
+          <th scope="col">Services</th>
+          <th scope="col">Status</th>
+        </tr>
+      </thead>
+      <tbody id="statusData">
+
+      </tbody>
+    </table>
+
+    <div class="container" id="divGenerate">
+      <h1>Generate workload</h1>
+      <form class="form-inline">
+        <div class="form-group mb-2">
+          <label for="vcpuUsage">% vCPU</label>
+          <input type="text" class="form-control" id="vcpuUsage" aria-describedby="% vCPU" placeholder="10-100" value="100">
+        </div>
+        <div class="form-group mb-2">
+          <label for="vcpuDuration">Duration (in sec)</label>
+          <input type="text" class="form-control" id="vcpuDuration" aria-describedby="Durée d'utilisation" value="600">
+        </div>
+        
+        <button type="button" id="btnGenerate" class="btn btn-primary mb-2" labelId="btnLabel" spinnerId="btnSpinner" spinnerLabelId="btnSpinnerLabel">
+          <span id="btnLabel">Generate</span>
+          <span id="btnSpinner" class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="display:none;"></span>
+          <span id="btnSpinnerLabel" style="display:none;">Crunching...</span>
+        </button>        
+      </form>
+    </div>
+</main>
+<script src="./js/jquery-3.7.1.min.js"></script>
+<script src="./js/bootstrap.min.js"></script>
+</body>
+</html>
