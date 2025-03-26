@@ -55,7 +55,8 @@ Resources:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          SourceSecurityGroupId: !Ref JumpBoxSecurityGroup
+          SourceSecurityGroupId: !ImportValue
+            Fn::Sub: "${NetworkStackName}-JumpBoxSGId"
       SecurityGroupEgress:
         - IpProtocol: -1
           FromPort: -1
@@ -76,24 +77,8 @@ Resources:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          SourceSecurityGroupId: !Ref JumpBoxSecurityGroup
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          FromPort: -1
-          ToPort: -1
-          CidrIp: 0.0.0.0/0
-
-  JumpBoxSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Security group for the Jump Box
-      VpcId: !ImportValue
-        Fn::Sub: "${NetworkStackName}-VpcId"
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: 0.0.0.0/0
+          SourceSecurityGroupId: !ImportValue
+            Fn::Sub: "${NetworkStackName}-JumpBoxSGId"
       SecurityGroupEgress:
         - IpProtocol: -1
           FromPort: -1
@@ -114,7 +99,8 @@ Resources:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          SourceSecurityGroupId: !Ref JumpBoxSecurityGroup
+          SourceSecurityGroupId: !ImportValue
+            Fn::Sub: "${NetworkStackName}-JumpBoxSGId"
       SecurityGroupEgress:
         - IpProtocol: -1
           FromPort: -1
@@ -135,7 +121,8 @@ Resources:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          SourceSecurityGroupId: !Ref JumpBoxSecurityGroup
+          SourceSecurityGroupId: !ImportValue
+            Fn::Sub: "${NetworkStackName}-JumpBoxSGId"
       SecurityGroupEgress:
         - IpProtocol: -1
           FromPort: -1
@@ -284,7 +271,6 @@ Resources:
         ImageId: ami-08b5b3a93ed654d19
         InstanceType: t2.micro
         KeyName: !Ref KeyPairName
-        # Updated to reference the correct security group for License server.
         SecurityGroupIds:
           - !Ref LicenseSecurityGroup
         IamInstanceProfile:
@@ -305,7 +291,7 @@ Resources:
             sudo chmod -R 755 /home/ec2-user/serveur-licence
 
             # Download app from S3
-            aws s3 cp s3://${S3BucketScripts}/service_license/ /home/ec2-user/serveur-licence/ --recursive
+            aws s3 cp s3://${S3BucketScripts}/service-license/ /home/ec2-user/serveur-licence/ --recursive
 
             # Move into app directory
             cd /home/ec2-user/serveur-licence
