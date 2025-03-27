@@ -40,7 +40,31 @@ Parameters:
     Type: String
     Description: "Prefix DNS"
 
+  EnvironmentType:
+    Type: String
+    Description: "Type environnement"
+    Default: "Test"
+    AllowedValues:
+      - "Test"
+      - "Prod"
+    ConstraintDescription: "Choisissez Test ou Prod"
+
+Conditions:
+  IsProduction: !Equals [!Ref EnvironmentType, "Prod"]
+
 Resources:
+  ImageQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${NetworkStackName}-image-queue"
+      VisibilityTimeout: 1200
+      Tags:
+        - Key: Name
+          Value: !Sub "${NetworkStackName}-ImageQueue"
+        - Key: Project
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-ProjectName"
+
   WebServiceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -129,14 +153,35 @@ Resources:
           ToPort: -1
           CidrIp: 0.0.0.0/0
 
+  WorkerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Worker server
+      VpcId: !ImportValue
+        Fn::Sub: "${NetworkStackName}-VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !ImportValue
+            Fn::Sub: "${NetworkStackName}-JumpBoxSGId"
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+
   WebSiteLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
       LaunchTemplateName: !Sub "${NetworkStackName}-WebSiteLaunchTemplate"
       VersionDescription: Initial version
       LaunchTemplateData:
-        ImageId: ami-08b5b3a93ed654d19
-        InstanceType: t2.small
+        ImageId: ami-0013610ea966aafe0
+        InstanceType: !If
+          - IsProduction
+          - c7g.medium
+          - c6g.medium
         IamInstanceProfile:
           Name: "LabInstanceProfile"
         KeyName: !Ref KeyPairName
@@ -174,8 +219,11 @@ Resources:
       LaunchTemplateName: !Sub "${NetworkStackName}-WebServiceLaunchTemplate"
       VersionDescription: Initial version
       LaunchTemplateData:
-        ImageId: ami-08b5b3a93ed654d19
-        InstanceType: t2.small
+        ImageId: ami-0013610ea966aafe0
+        InstanceType: !If
+          - IsProduction
+          - m7g.medium
+          - c6g.medium
         KeyName: !Ref KeyPairName
         SecurityGroupIds:
           - !Ref WebServiceSecurityGroup
@@ -184,10 +232,17 @@ Resources:
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
+
+            exec > >(tee -i /var/log/serveur-licence-install.log) 2>&1
+            set -e
+
             export LICENSE="${License}"
             export DBRootPassword="${DBRootPassword}"
             export DBUser="${DBUser}"
             export DNSPrefix="${DNSPrefix}"
+            export ImageQueue="${ImageQueue}"
+            echo "ImageQueue value is $ImageQueue" >> /var/log/serveur-licence-install.log
+
             dnf update -y
             dnf install -y java-21-amazon-corretto
             dnf install -y aws-cli
@@ -203,6 +258,7 @@ Resources:
             WEBSERVER_DBPORT=3360
             WEBSERVER_DBUSER=$DBUser
             WEBSERVER_DBPASS=$DBRootPassword
+            WEBSERVER_IMAGEQUEUE=${ImageQueue}
             EOF
             export $(cat /etc/environment | xargs)
             cat <<EOF > /etc/systemd/system/menugraphique.service
@@ -231,8 +287,8 @@ Resources:
     Properties:
       LaunchTemplateName: !Sub "${NetworkStackName}-DbLaunchTemplate"
       LaunchTemplateData:
-        ImageId: ami-08b5b3a93ed654d19
-        InstanceType: t2.micro
+        ImageId: ami-0013610ea966aafe0
+        InstanceType: c6g.large
         KeyName: !Ref KeyPairName
         SecurityGroupIds:
           - !Ref DbSecurityGroup
@@ -268,8 +324,8 @@ Resources:
     Properties:
       LaunchTemplateName: !Sub "${NetworkStackName}-LicenseLaunchTemplate"
       LaunchTemplateData:
-        ImageId: ami-08b5b3a93ed654d19
-        InstanceType: t2.micro
+        ImageId: ami-0013610ea966aafe0
+        InstanceType: c6g.medium
         KeyName: !Ref KeyPairName
         SecurityGroupIds:
           - !Ref LicenseSecurityGroup
@@ -329,6 +385,69 @@ Resources:
             # Open firewall for port 9090
             sudo firewall-cmd --permanent --add-port=9090/tcp
             sudo firewall-cmd --reload
+
+  WorkerLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "${NetworkStackName}-WorkerLaunchTemplate"
+      VersionDescription: Initial version
+      LaunchTemplateData:
+        ImageId: ami-0013610ea966aafe0
+        InstanceType: !If
+          - IsProduction
+          - c7g.large
+          - c6g.medium
+        IamInstanceProfile:
+          Name: "LabInstanceProfile"
+        KeyName: !Ref KeyPairName
+        SecurityGroupIds:
+          - !Ref WorkerSecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            export LICENSE="${License}"
+            export DBRootPassword="${DBRootPassword}"
+            export DBUser="${DBUser}"
+            export DNSPrefix="${DNSPrefix}"
+            export ImageQueue="${ImageQueue}"
+            dnf update -y
+            dnf install -y java-21-amazon-corretto
+            dnf install -y aws-cli
+            mkdir -p /opt/worker
+            cd /opt/worker
+            aws s3 cp s3://${S3BucketScripts}/web-server/ImageWorker/ImageWorker-0.0.1-SNAPSHOT-jar-with-dependencies.jar /opt/worker/ImageWorker-0.0.1-SNAPSHOT-jar-with-dependencies.jar
+
+            cat <<EOF >> /etc/environment
+            WEBSERVER_DBHOST=db.${DNSPrefix}team22.gti778.ets.bimweb.net
+            WEBSERVER_DBPORT=3360
+            WEBSERVER_DBUSER=$DBUser
+            WEBSERVER_DBPASS=$DBRootPassword
+            WEBSERVER_IMAGEQUEUE=$ImageQueue
+            EOF
+
+            cat <<EOF > /etc/systemd/system/imageworker.service
+            [Unit]
+            Description=ImageWorker Service
+            After=network.target
+
+            [Service]
+            User=root
+            WorkingDirectory=/opt/worker
+            EnvironmentFile=/etc/environment
+            ExecStart=/usr/bin/java -jar /opt/worker/ImageWorker-0.0.1-SNAPSHOT-jar-with-dependencies.jar
+            SuccessExitStatus=143
+            Restart=always
+            RestartSec=5
+            StandardOutput=journal
+            StandardError=journal
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+            systemctl daemon-reload
+            systemctl enable imageworker
+            systemctl start imageworker
 
   DbInstance:
     Type: AWS::EC2::Instance
@@ -401,6 +520,23 @@ Resources:
           Value: "website"
         - Key: Environment
           Value: "Production"
+
+  WorkerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref WorkerLaunchTemplate
+        Version: !GetAtt WorkerLaunchTemplate.LatestVersionNumber
+      SubnetId: !ImportValue
+        Fn::Sub: "${NetworkStackName}-PrivateSubnet1Id"
+      Tags:
+        - Key: Name
+          Value: !Sub "${NetworkStackName}-WorkerServer"
+        - Key: Project
+          Value: !ImportValue
+            Fn::Sub: "${NetworkStackName}-ProjectName"
+        - Key: Layer
+          Value: "worker"
 
 Outputs:
   DbServerPrivateIP:
