@@ -121,6 +121,10 @@ Resources:
           ToPort: 3360
           SourceSecurityGroupId: !Ref WebServiceSecurityGroup
         - IpProtocol: tcp
+          FromPort: 3360
+          ToPort: 3360
+          SourceSecurityGroupId: !Ref WorkerSecurityGroup
+        - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
           SourceSecurityGroupId: !ImportValue
