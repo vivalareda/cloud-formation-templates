@@ -240,8 +240,6 @@ Resources:
             export DBRootPassword="${DBRootPassword}"
             export DBUser="${DBUser}"
             export DNSPrefix="${DNSPrefix}"
-            export ImageQueue="${ImageQueue}"
-            echo "ImageQueue value is $ImageQueue" >> /var/log/serveur-licence-install.log
 
             dnf update -y
             dnf install -y java-21-amazon-corretto
@@ -258,7 +256,7 @@ Resources:
             WEBSERVER_DBPORT=3360
             WEBSERVER_DBUSER=$DBUser
             WEBSERVER_DBPASS=$DBRootPassword
-            WEBSERVER_IMAGEQUEUE=${ImageQueue}
+            WEBSERVER_IMAGEQUEUE=${NetworkStackName}-image-queue
             EOF
             export $(cat /etc/environment | xargs)
             cat <<EOF > /etc/systemd/system/menugraphique.service
