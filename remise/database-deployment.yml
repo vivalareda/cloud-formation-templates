@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mariadb-deployment
+  name: mariadb
   labels:
     app: mariadb
 spec:
@@ -16,31 +16,40 @@ spec:
     spec:
       containers:
         - name: mariadb
-          image: mariadb:latest
-          resources:
-            requests:
-              memory: "3Gi"
-              cpu: "2000m"
+          image: 005744789143.dkr.ecr.us-east-1.amazonaws.com/gti778/maria-db:latest
           ports:
             - containerPort: 3360
           env:
-            - name: MYSQL_ROOT_PASSWORD
-              value: "Password123!"
-            - name: MYSQL_USER
+            - name: DBPort
+              value: "3360"
+            - name: DBUser
               value: "test"
+            - name: DBRootPassword
+              value: "Password123!"
             - name: MYSQL_DATABASE
               value: "Pizzas"
-          args:
-            - "--port=3360"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: mariadb-service
-spec:
-  selector:
-    app: mariadb
-  ports:
-    - port: 3360
-      targetPort: 3360
-  type: LoadBalancer
+          resources:
+            requests:
+              cpu: "2"
+              memory: "3Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+          livenessProbe:
+            exec:
+              command:
+                - mysqladmin
+                - ping
+                - -h
+                - localhost
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - mysqladmin
+                - ping
+                - -h
+                - localhost
+            initialDelaySeconds: 5
+            periodSeconds: 10

@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: license-server
+  labels:
+    app: license-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: license-server
+  template:
+    metadata:
+      labels:
+        app: license-server
+    spec:
+      containers:
+        - name: license-server
+          image: 005744789143.dkr.ecr.us-east-1.amazonaws.com/gti778/license-server:latest
+          ports:
+            - containerPort: 9090 # License server port
+          resources:
+            requests:
+              cpu: "100m" # 0.1 CPU core
+              memory: "256Mi"
+            limits:
+              cpu: "500m" # 0.5 CPU core
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: license-server-service
+spec:
+  selector:
+    app: license-server
+  ports:
+    - protocol: TCP
+      port: 9090 # Service port (what the backend uses)
+      targetPort: 9090 # Target port on the pod
+  type: ClusterIP # Or LoadBalancer if external access is needed
+
