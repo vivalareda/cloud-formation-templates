@@ -80,7 +80,6 @@ Conditions:
   IsProduction: !Equals [!Ref EnvironmentType, "Prod"]
 
 Resources:
-  # VPC Principal
   MyVPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -95,7 +94,6 @@ Resources:
         - Key: Project
           Value: !Ref ProjectName
 
-  # Internet Gateway
   InternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
@@ -113,8 +111,7 @@ Resources:
       VpcId: !Ref MyVPC
       InternetGatewayId: !Ref InternetGateway
 
-  # Sous-reseaux publics
-  PublicSubnet1:
+  PublicSubnetA:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref MyVPC
@@ -123,30 +120,29 @@ Resources:
       AvailabilityZone: !Select [0, !Ref AvailabilityZones]
       Tags:
         - Key: Name
-          Value: !Sub "${ProjectName}-${EnvironmentType}-PublicSubnet1"
+          Value: !Sub "${ProjectName}-${EnvironmentType}-PublicSubnetA"
         - Key: Environment
           Value: !Ref EnvironmentType
         - Key: Project
           Value: !Ref ProjectName
 
-  PublicSubnet2:
+  PublicSubnetB:
     Type: AWS::EC2::Subnet
     Condition: IsProduction
     Properties:
       VpcId: !Ref MyVPC
       CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
       MapPublicIpOnLaunch: true
-      AvailabilityZone: !Select [0, !Ref AvailabilityZones]
+      AvailabilityZone: !Select [1, !Ref AvailabilityZones]
       Tags:
         - Key: Name
-          Value: !Sub "${ProjectName}-${EnvironmentType}-PublicSubnet2"
+          Value: !Sub "${ProjectName}-${EnvironmentType}-PublicSubnetB"
         - Key: Environment
           Value: !Ref EnvironmentType
         - Key: Project
           Value: !Ref ProjectName
 
-  # Sous-reseaux prives
-  PrivateSubnet1:
+  PrivateSubnet1A:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref MyVPC
@@ -155,28 +151,13 @@ Resources:
       AvailabilityZone: !Select [0, !Ref AvailabilityZones]
       Tags:
         - Key: Name
-          Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet1"
+          Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet1A"
         - Key: Environment
           Value: !Ref EnvironmentType
         - Key: Project
           Value: !Ref ProjectName
 
-  PrivateSubnet2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref MyVPC
-      CidrBlock: !Select [3, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
-      MapPublicIpOnLaunch: false
-      AvailabilityZone: !Select [0, !Ref AvailabilityZones]
-      Tags:
-        - Key: Name
-          Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet2"
-        - Key: Environment
-          Value: !Ref EnvironmentType
-        - Key: Project
-          Value: !Ref ProjectName
-
-  PrivateSubnet3:
+  PrivateSubnet1B:
     Type: AWS::EC2::Subnet
     Condition: IsProduction
     Properties:
@@ -186,13 +167,28 @@ Resources:
       AvailabilityZone: !Select [0, !Ref AvailabilityZones]
       Tags:
         - Key: Name
-          Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet3"
+          Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet1B"
         - Key: Environment
           Value: !Ref EnvironmentType
         - Key: Project
           Value: !Ref ProjectName
 
-  PrivateSubnet4:
+  PrivateSubnet2A:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: !Select [3, !Cidr [!Ref VpcCidr, 6, !Ref InstanceBits]]
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [1, !Ref AvailabilityZones]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet2A"
+        - Key: Environment
+          Value: !Ref EnvironmentType
+        - Key: Project
+          Value: !Ref ProjectName
+
+  PrivateSubnet2B:
     Type: AWS::EC2::Subnet
     Condition: IsProduction
     Properties:
@@ -202,13 +198,12 @@ Resources:
       AvailabilityZone: !Select [0, !Ref AvailabilityZones]
       Tags:
         - Key: Name
-          Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet4"
+          Value: !Sub "${ProjectName}-${EnvironmentType}-PrivateSubnet2B"
         - Key: Environment
           Value: !Ref EnvironmentType
         - Key: Project
           Value: !Ref ProjectName
 
-  # Tables de routage
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -229,20 +224,19 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
 
-  PublicSubnet1RouteTableAssociation:
+  PublicSubnetARouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: !Ref PublicSubnet1
+      SubnetId: !Ref PublicSubnetA
       RouteTableId: !Ref PublicRouteTable
 
-  PublicSubnet2RouteTableAssociation:
+  PublicSubnetBRouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Condition: IsProduction
     Properties:
-      SubnetId: !Ref PublicSubnet2
+      SubnetId: !Ref PublicSubnetB
       RouteTableId: !Ref PublicRouteTable
 
-  # Security Groups
   JumpBoxSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -272,19 +266,19 @@ Resources:
       TemplateURL: "https://menugraphique-2025-h24-22.s3.us-east-1.amazonaws.com/natInstance.json"
       Parameters:
         VpcId: !Ref MyVPC
-        PublicSubnetId: !Ref PublicSubnet1
+        PublicSubnetId: !Ref PublicSubnetA
         PrivatesSubnetsID: !If
           - IsProduction
           - !Join [
               ",",
               [
-                !Ref PrivateSubnet1,
-                !Ref PrivateSubnet2,
-                !Ref PrivateSubnet3,
-                !Ref PrivateSubnet4,
+                !Ref PrivateSubnet1A,
+                !Ref PrivateSubnet2A,
+                !Ref PrivateSubnet1B,
+                !Ref PrivateSubnet2B,
               ],
             ]
-          - !Join [",", [!Ref PrivateSubnet1, !Ref PrivateSubnet2]]
+          - !Join [",", [!Ref PrivateSubnet1A, !Ref PrivateSubnet2A]]
         KeyPairName: !Ref KeyPairName
 
 Outputs:
@@ -294,56 +288,56 @@ Outputs:
     Export:
       Name: !Sub "${AWS::StackName}-VpcId"
 
-  PublicSubnet1Id:
+  PublicSubnetAId:
     Description: "ID du premier sous-reseau public"
-    Value: !Ref PublicSubnet1
+    Value: !Ref PublicSubnetA
     Export:
-      Name: !Sub "${AWS::StackName}-PublicSubnet1Id"
+      Name: !Sub "${AWS::StackName}-PublicSubnetAId"
 
-  PublicSubnet2Id:
+  PublicSubnetBId:
     Condition: IsProduction
     Description: "ID du second sous-reseau public"
-    Value: !Ref PublicSubnet2
+    Value: !Ref PublicSubnetB
     Export:
-      Name: !Sub "${AWS::StackName}-PublicSubnet2Id"
+      Name: !Sub "${AWS::StackName}-PublicSubnetBId"
 
-  PrivateSubnet1Id:
+  PrivateSubnet1AId:
     Description: "ID du premier sous-reseau prive (licence)"
-    Value: !Ref PrivateSubnet1
+    Value: !Ref PrivateSubnet1A
     Export:
-      Name: !Sub "${AWS::StackName}-PrivateSubnet1Id"
-
-  PrivateSubnet2Id:
-    Description: "ID du second sous-reseau prive (database)"
-    Value: !Ref PrivateSubnet2
-    Export:
-      Name: !Sub "${AWS::StackName}-PrivateSubnet2Id"
-
-  PrivateSubnet3Id:
-    Condition: IsProduction
-    Description: "ID du troisieme sous-reseau prive"
-    Value: !Ref PrivateSubnet3
-    Export:
-      Name: !Sub "${AWS::StackName}-PrivateSubnet3Id"
-
-  PrivateSubnet4Id:
-    Condition: IsProduction
-    Description: "ID du quatrieme sous-reseau prive"
-    Value: !Ref PrivateSubnet4
-    Export:
-      Name: !Sub "${AWS::StackName}-PrivateSubnet4Id"
-
-  ProjectName:
-    Description: "Nom du projet"
-    Value: !Ref ProjectName
-    Export:
-      Name: !Sub "${AWS::StackName}-ProjectName"
+      Name: !Sub "${AWS::StackName}-PrivateSubnet1AId"
 
   EnvironmentType:
     Description: "Type environnement"
     Value: !Ref EnvironmentType
     Export:
       Name: !Sub "${AWS::StackName}-EnvironmentType"
+
+  PrivateSubnet2AId:
+    Description: "ID du second sous-reseau prive (database)"
+    Value: !Ref PrivateSubnet2A
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnet2AId"
+
+  PrivateSubnet1BId:
+    Condition: IsProduction
+    Description: "ID du troisieme sous-reseau prive"
+    Value: !Ref PrivateSubnet1B
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnet1BId"
+
+  PrivateSubnet2BId:
+    Condition: IsProduction
+    Description: "ID du quatrieme sous-reseau prive"
+    Value: !Ref PrivateSubnet2B
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnet2BId"
+
+  ProjectName:
+    Description: "Nom du projet"
+    Value: !Ref ProjectName
+    Export:
+      Name: !Sub "${AWS::StackName}-ProjectName" #Corrected export name
 
   JumpBoxSecurityGroupId:
     Description: "ID du groupe de securite pour la JumpBox"
