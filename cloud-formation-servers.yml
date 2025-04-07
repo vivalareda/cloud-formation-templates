@@ -269,11 +269,13 @@ Resources:
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
+
+            exec > >(tee -i /var/log/server-nginx.log) 2>&1
+
             sudo dnf update -y
             sudo dnf install -y nginx
             mkdir -p /home/ec2-user/siteweb
-            aws s3 cp s3://${S3BucketScripts}/site-web/ /home/ec2-user/siteweb
-            --recursive
+            aws s3 cp s3://${S3BucketScripts}/site-web/ /home/ec2-user/siteweb --recursive
             CONFIG_FILE="/home/ec2-user/siteweb/js/config.js"
             if [ -f "$CONFIG_FILE" ]; then
               echo "Updating API endpoint in config.js..."
