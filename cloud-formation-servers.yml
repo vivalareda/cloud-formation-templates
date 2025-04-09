@@ -62,6 +62,7 @@ Parameters:
 
 Conditions:
   IsProduction: !Equals [!Ref EnvironmentType, "Prod"]
+  IsTest: !Equals [!Ref EnvironmentType, "Test"]
 
 Resources:
   ImageQueue:
@@ -154,7 +155,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          CidrIp: 0.0.0.0/0
+          SourceSecurityGroupId: !Ref WebServiceLoadBalancerSecurityGroup
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
@@ -539,6 +540,7 @@ Resources:
 
   DbInstance:
     Type: AWS::EC2::Instance
+    Condition: IsTest
     DependsOn: LicenseInstance # Ensure LicenseInstance is created first
     Properties:
       LaunchTemplate:
@@ -556,6 +558,7 @@ Resources:
 
   LicenseInstance:
     Type: AWS::EC2::Instance
+    Condition: IsTest
     Properties:
       LaunchTemplate:
         LaunchTemplateId: !Ref LicenseLaunchTemplate
@@ -572,6 +575,7 @@ Resources:
 
   WebServiceInstance:
     Type: AWS::EC2::Instance
+    Condition: IsTest
     Properties:
       LaunchTemplate:
         LaunchTemplateId: !Ref WebServiceLaunchTemplate
@@ -589,6 +593,7 @@ Resources:
 
   WebSiteInstance:
     Type: AWS::EC2::Instance
+    Condition: IsTest
     Properties:
       LaunchTemplate:
         LaunchTemplateId: !Ref WebSiteLaunchTemplate
@@ -819,10 +824,12 @@ Resources:
 
 Outputs:
   DbServerPrivateIP:
+    Condition: IsTest
     Description: "Adresse IP privée du serveur de base de données"
     Value: !GetAtt DbInstance.PrivateIp
 
   DbSecurityGroupId:
+    Condition: IsTest
     Description: "ID du groupe de sécurité de la base de données"
     Value: !Ref DbSecurityGroup
 
